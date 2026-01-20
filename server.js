@@ -149,7 +149,7 @@ app.post("/maquinas/:id/mantenimiento", async (req, res) => {
 // --- AUTO-PING (MANTIENE RENDER DESPIERTO) ---
 setInterval(() => {
   // Cambia esto por tu URL real de Render cuando la tengas
-  fetch("https://backend-speed-turbo.onrender.com/maquinas").catch(() => {});
+  fetch("hhttps://backend-speed-turbo.onrender.com").catch(() => {});
 }, 600000); // 10 minutos
 
 const PORT = process.env.PORT || 3001;
