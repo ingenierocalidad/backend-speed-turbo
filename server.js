@@ -12,10 +12,16 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// --- CONFIGURACIÓN FIREBASE ---
-const serviceAccount = process.env.FIREBASE_KEY 
-  ? JSON.parse(process.env.FIREBASE_KEY) 
-  : serviceAccountLocal;
+// --- CONFIGURACIÓN FIREBASE (ACTUALIZADA) ---
+let serviceAccount;
+
+if (process.env.FIREBASE_KEY) {
+  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+  // ESTA LÍNEA REPARA EL ERROR DE INVALID JWT SIGNATURE
+  serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+} else {
+  serviceAccount = serviceAccountLocal;
+}
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -90,15 +96,12 @@ app.post("/suscribir", async (req, res) => {
 });
 
 // --- CRON JOB: REVISIÓN DE MANTENIMIENTOS ---
-// ACTUAL: Se ejecuta cada 1 minuto (*/1 * * * *)
-// PARA CAMBIAR A CADA HORA: Reemplaza por "0 * * * *"
 cron.schedule("*/1 * * * *", async () => {
   try {
     const ahora = new Date();
     const hora = ahora.getHours();
     const minutos = ahora.getMinutes();
 
-    // Filtro horario: 8:30 AM (8:30) hasta 5:00 PM (17:00)
     const esHorarioLaboral = (hora > 8 || (hora === 8 && minutos >= 30)) && hora < 17;
 
     if (esHorarioLaboral) {
@@ -106,7 +109,6 @@ cron.schedule("*/1 * * * *", async () => {
       maquinas.forEach(m => {
         m.mantenimientos.forEach(mt => {
           const estado = calcularEstado(mt.fecha_limite);
-          
           if (estado === "Plazo Incumplido") {
             enviarPush("🚨 PLAZO INCUMPLIDO", `${m.nombre}: ${mt.tipo} vencido.`);
           } else if (estado === "Próximo" && hora === 9 && minutos === 0) {
@@ -148,12 +150,12 @@ app.post("/maquinas/:id/mantenimiento", async (req, res) => {
 
 // --- AUTO-PING (MANTIENE RENDER DESPIERTO) ---
 setInterval(() => {
-  // Cambia esto por tu URL real de Render cuando la tengas
-  fetch("hhttps://backend-speed-turbo.onrender.com").catch(() => {});
-}, 600000); // 10 minutos
+  // Corregido: https sin doble 'h'
+  fetch("https://backend-speed-turbo.onrender.com/maquinas").catch(() => {});
+}, 600000); 
 
 const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://speedserver:Speed2026@mantenimiento.fucwjdl.mongodb.net/mantenimientoAPP?retryWrites=true&w=majority&appName=mantenimiento";
 
 mongoose.connect(MONGO_URI)
   .then(() => {
