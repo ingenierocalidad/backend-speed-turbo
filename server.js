@@ -143,42 +143,41 @@ app.get("/maquinas", async (req, res) => {
 
 // --- RUTA MODIFICADA PARA FUNCIONAMIENTO DEL BOTÓN ---
 app.post("/maquinas/:id/mantenimiento", async (req, res) => {
-  try {
-    const idRecibido = req.params.id.trim();
-    
-    // CAMBIO CLAVE: Buscamos usando el campo _id explícitamente 
-    // Esto es más efectivo cuando el ID viene de dispositivos móviles
-    const maquina = await Maquina.findOne({ _id: idRecibido });
+    try {
+        const idRecibido = req.params.id.trim();
+        
+        // Ahora buscará el String "696fa57f639992a0ecb76880" sin errores
+        const maquina = await Maquina.findOne({ _id: idRecibido });
 
-    if (!maquina) {
-      console.log(`❌ No encontrada en Atlas. ID solicitado: [${idRecibido}]`);
-      return res.status(404).json({ error: "Máquina no encontrada en Atlas" });
+        if (!maquina) {
+            console.log(`❌ No encontrada en Atlas. ID solicitado: [${idRecibido}]`);
+            return res.status(404).json({ error: "Máquina no encontrada en Atlas" });
+        }
+
+        const mtto = maquina.mantenimientos.find(m => m.tipo === req.body.tipo);
+        if (!mtto) return res.status(400).json({ error: "Tipo de mantenimiento no válido" });
+
+        maquina.historial.push({
+            tipo: mtto.tipo, 
+            estado: "Realizado",
+            fecha_limite: mtto.fecha_limite, 
+            fecha_registro: new Date()
+        });
+
+        mtto.fecha_limite = proximaFecha(mtto.tipo);
+        mtto.estado = "Vigente";
+        
+        maquina.markModified('mantenimientos');
+        maquina.markModified('historial'); 
+        await maquina.save();
+
+        enviarPush("✅ Registro Exitoso", `${maquina.nombre}: ${mtto.tipo} completado.`);
+        res.json({ success: true });
+
+    } catch (err) { 
+        console.error("❌ Error en registro:", err.message);
+        res.status(500).json({ error: err.message }); 
     }
-
-    const mtto = maquina.mantenimientos.find(m => m.tipo === req.body.tipo);
-    if (!mtto) return res.status(400).json({ error: "Tipo de mantenimiento no válido" });
-
-    maquina.historial.push({
-      tipo: mtto.tipo, 
-      estado: "Realizado",
-      fecha_limite: mtto.fecha_limite, 
-      fecha_registro: new Date()
-    });
-
-    mtto.fecha_limite = proximaFecha(mtto.tipo);
-    mtto.estado = "Vigente";
-
-    maquina.markModified('mantenimientos');
-    maquina.markModified('historial'); 
-    await maquina.save();
-
-    enviarPush("✅ Registro Exitoso", `${maquina.nombre}: ${mtto.tipo} completado.`);
-    
-    res.json({ success: true });
-  } catch (err) { 
-    console.error("❌ Error en registro:", err.message);
-    res.status(500).json({ error: "Error en el servidor: " + err.message }); 
-  }
 });
 
 // --- AUTO-PING (MANTIENE RENDER DESPIERTO) ---
