@@ -12,30 +12,19 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // --- CONFIGURACIÓN FIREBASE ---
+let serviceAccount;
+
+if (process.env.FIREBASE_KEY) {
+  // Si estamos en Render, usamos la variable de entorno
+  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+} else {
+  // Si estamos en local, usamos el archivo
+  serviceAccount = serviceAccountJSON; // Asegúrate de que el import de arriba siga igual
+}
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
-
-const enviarPush = async (titulo, mensaje) => {
-  const message = {
-    topic: "mantenimiento", 
-    notification: { title: titulo, body: mensaje },
-    android: { 
-      priority: "high",
-      notification: { 
-        sound: "default", 
-        channelId: "mantenimiento_channel",
-        clickAction: "TOP_STORY_ACTIVITY"
-      } 
-    }
-  };
-  try {
-    await admin.messaging().send(message);
-    console.log(`✅ Notificación enviada: ${titulo}`);
-  } catch (err) {
-    console.error("❌ Error enviando Push:", err.message);
-  }
-};
 
 // --- LÓGICA DE FECHAS ---
 const calcularEstado = (fechaStr) => {
