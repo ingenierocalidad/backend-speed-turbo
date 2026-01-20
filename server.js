@@ -89,10 +89,11 @@ const mttoSchema = new mongoose.Schema({
 });
 
 const Maquina = mongoose.model("Maquina", new mongoose.Schema({
-  nombre: String, 
-  laboratorio: String, 
-  mantenimientos: [mttoSchema], 
-  historial: [mttoSchema]
+    _id: String, // <--- AGREGA ESTA LÍNEA AQUÍ
+    nombre: String, 
+    laboratorio: String, 
+    mantenimientos: [mttoSchema], 
+    historial: [mttoSchema]
 }));
 
 // --- RUTAS API ---
