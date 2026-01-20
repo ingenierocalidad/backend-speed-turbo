@@ -94,27 +94,51 @@ app.get("/maquinas", async (req, res) => {
 
 app.post("/maquinas/:id/mantenimiento", async (req, res) => {
     try {
-        const idLimpio = req.params.id.trim();
-        const maquina = await Maquina.findById(idLimpio);
-        if (!maquina) return res.status(404).json({ error: "Máquina no encontrada" });
+        // CORRECCIÓN: Limpieza profunda del ID y validación
+        const idRecibido = req.params.id.trim();
+        
+        // Buscamos la máquina
+        const maquina = await Maquina.findById(idRecibido);
+        
+        if (!maquina) {
+            console.log("❌ Máquina no encontrada con ID:", idRecibido);
+            return res.status(404).json({ error: "Máquina no encontrada" });
+        }
 
+        // Buscamos el mantenimiento específico dentro de la máquina
         const mtto = maquina.mantenimientos.find(m => m.tipo === req.body.tipo);
-        if (!mtto) return res.status(400).json({ error: "Tipo no válido" });
+        
+        if (!mtto) {
+            console.log("❌ Tipo de mtto no encontrado:", req.body.tipo);
+            return res.status(400).json({ error: "Tipo no válido" });
+        }
 
+        // Guardamos en el historial antes de actualizar la fecha
         maquina.historial.push({
-            tipo: mtto.tipo, estado: "Realizado",
-            fecha_limite: mtto.fecha_limite, fecha_registro: new Date()
+            tipo: mtto.tipo, 
+            estado: "Realizado",
+            fecha_limite: mtto.fecha_limite, 
+            fecha_registro: new Date()
         });
 
+        // Calculamos la nueva fecha
         mtto.fecha_limite = proximaFecha(mtto.tipo);
         mtto.estado = "Vigente";
+        
+        // Forzamos a Mongoose a notar los cambios en los arreglos
         maquina.markModified('mantenimientos');
         maquina.markModified('historial'); 
+        
         await maquina.save();
 
+        // Enviamos la notificación
         enviarPush("✅ Registro Exitoso", `${maquina.nombre}: ${mtto.tipo} completado.`);
+        
         res.json({ success: true });
-    } catch (err) { res.status(500).json({ error: err.message }); }
+    } catch (err) { 
+        console.error("❌ Error en el servidor:", err.message);
+        res.status(500).json({ error: err.message }); 
+    }
 });
 
 // --- AUTO-PING ---
