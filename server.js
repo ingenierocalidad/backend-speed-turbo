@@ -1,4 +1,3 @@
-@@ -1,23 +1,24 @@
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -19,12 +18,15 @@ let serviceAccount;
 if (process.env.FIREBASE_KEY) {
   // 1. Convertimos el texto a objeto
   serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
-  // ESTA LÍNEA REPARA EL ERROR DE INVALID JWT SIGNATURE
   // 2. Limpiamos los saltos de línea de la llave privada
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 } else {
   serviceAccount = serviceAccountLocal;
-@@ -29,137 +30,147 @@
+}
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
   });
 }
 
@@ -37,7 +39,6 @@ const enviarPush = async (titulo, mensaje) => {
     notification: { title: titulo, body: mensaje },
     android: { 
       priority: "high",
-      notification: { sound: "default", channelId: "mantenimiento_channel" } 
       notification: { 
         sound: "default", 
         channelId: "mantenimiento_channel" 
@@ -52,7 +53,6 @@ const enviarPush = async (titulo, mensaje) => {
     console.log(`✅ Push enviado: ${titulo}`);
   } catch (err) {
     console.error("❌ Error Push:", err.message);
-    // Si falla por tiempo, el siguiente intento del cron lo volverá a intentar
   }
 };
 
@@ -140,27 +140,46 @@ app.get("/maquinas", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// --- RUTA MODIFICADA PARA FUNCIONAMIENTO DEL BOTÓN ---
 app.post("/maquinas/:id/mantenimiento", async (req, res) => {
   try {
-    const maquina = await Maquina.findById(req.params.id);
+    // 1. Limpieza del ID para asegurar compatibilidad con Atlas y Capacitor
+    const idLimpio = req.params.id.toString().trim();
+    const maquina = await Maquina.findById(idLimpio);
+
+    if (!maquina) {
+      console.log(`❌ Máquina no encontrada con ID: ${idLimpio}`);
+      return res.status(404).json({ error: "Máquina no encontrada" });
+    }
+
     const mtto = maquina.mantenimientos.find(m => m.tipo === req.body.tipo);
+    if (!mtto) return res.status(400).json({ error: "Tipo no válido" });
+
     maquina.historial.push({
-      tipo: mtto.tipo, estado: "Realizado",
-      fecha_limite: mtto.fecha_limite, fecha_registro: new Date()
+      tipo: mtto.tipo, 
+      estado: "Realizado",
+      fecha_limite: mtto.fecha_limite, 
+      fecha_registro: new Date()
     });
+
     mtto.fecha_limite = proximaFecha(mtto.tipo);
     mtto.estado = "Vigente";
+    
     maquina.markModified('mantenimientos');
     maquina.markModified('historial'); 
+    
     await maquina.save();
+    
     enviarPush("✅ Registro Exitoso", `${maquina.nombre}: ${mtto.tipo} completado.`);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error("❌ Error en registro:", err.message);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 // --- AUTO-PING (MANTIENE RENDER DESPIERTO) ---
 setInterval(() => {
-  // Corregido: https sin doble 'h'
   fetch("https://backend-speed-turbo.onrender.com/maquinas").catch(() => {});
 }, 600000); 
 
@@ -173,3 +192,4 @@ mongoose.connect(MONGO_URI)
       console.log(`🚀 Servidor activo (8:30-17:00). Puerto: ${PORT}`);
     });
   })
+  .catch(err => console.error("❌ Error DB:", err));
