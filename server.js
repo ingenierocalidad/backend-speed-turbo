@@ -94,15 +94,15 @@ app.get("/maquinas", async (req, res) => {
 
 app.post("/maquinas/:id/mantenimiento", async (req, res) => {
     try {
-        // CORRECCIÓN: Limpieza profunda del ID y validación
-        const idRecibido = req.params.id.trim();
+        // Usamos string() y trim() para asegurar que el ID sea puro
+        const idLimpio = req.params.id.toString().trim();
         
-        // Buscamos la máquina
-        const maquina = await Maquina.findById(idRecibido);
+        // Buscamos la máquina por ID
+        const maquina = await Maquina.findById(idLimpio);
         
         if (!maquina) {
-            console.log("❌ Máquina no encontrada con ID:", idRecibido);
-            return res.status(404).json({ error: "Máquina no encontrada" });
+            console.log(`❌ Máquina no encontrada con ID: ${idLimpio}`);
+            return res.status(404).json({ error: "Máquina no encontrada en Atlas" });
         }
 
         // Buscamos el mantenimiento específico dentro de la máquina
