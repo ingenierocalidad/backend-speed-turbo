@@ -16,8 +16,9 @@ app.use(express.json());
 let serviceAccount;
 
 if (process.env.FIREBASE_KEY) {
+  // 1. Convertimos el texto a objeto
   serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
-  // ESTA LÍNEA REPARA EL ERROR DE INVALID JWT SIGNATURE
+  // 2. Limpiamos los saltos de línea de la llave privada
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 } else {
   serviceAccount = serviceAccountLocal;
@@ -29,20 +30,30 @@ if (!admin.apps.length) {
   });
 }
 
+// Función auxiliar para no saturar a Google (retraso de 1 segundo)
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
 const enviarPush = async (titulo, mensaje) => {
   const message = {
     topic: "mantenimiento", 
     notification: { title: titulo, body: mensaje },
     android: { 
       priority: "high",
-      notification: { sound: "default", channelId: "mantenimiento_channel" } 
+      notification: { 
+        sound: "default", 
+        channelId: "mantenimiento_channel" 
+      } 
     }
   };
+
   try {
+    // Esperamos 1.5 segundos antes de enviar para evitar el error de JWT Signature por saturación
+    await delay(1500); 
     await admin.messaging().send(message);
     console.log(`✅ Push enviado: ${titulo}`);
   } catch (err) {
     console.error("❌ Error Push:", err.message);
+    // Si falla por tiempo, el siguiente intento del cron lo volverá a intentar
   }
 };
 
