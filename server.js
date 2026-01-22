@@ -139,7 +139,7 @@ const enviarReporteExcel = async () => {
 
     const msg = {
       to: ['ing.calidad@spturbos.com', 'juang@spturbos.com', 'jgomez@spturbos.com', 'jarango@spturbos.com'],
-      from: 'tu-correo-verificado-en-sendgrid@gmail.com', // CAMBIAR POR TU CORREO AUTORIZADO
+      from: 'speedturbo.ingenieria@gmail.com', 
       bcc: 'dbecerravele@gmail.com',
       subject: `📊 Reporte Bimestral Historial - ${new Date().toLocaleDateString('es-CO')}`,
       text: 'Adjunto se encuentra el historial de mantenimientos registrados en la App en el bimestre anterior.',
