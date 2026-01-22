@@ -137,11 +137,19 @@ const enviarReporteExcel = async () => {
 
     const buffer = await workbook.xlsx.writeBuffer();
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, // true para puerto 465
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
-      }
+      },
+      tls: {
+        rejectUnauthorized: false // Ayuda a evitar bloqueos de firewall en Render
+      },
+      connectionTimeout: 20000, // Aumentamos a 20 segundos
+      greetingTimeout: 20000,
+      socketTimeout: 20000
     });
 
     const mailOptions = {
