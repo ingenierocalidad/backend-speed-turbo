@@ -4,6 +4,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cron from "node-cron";
 import admin from "firebase-admin";
+import ExcelJS from 'exceljs';
+import nodemailer from 'nodemailer';
 import serviceAccountLocal from "./firebase-key.json" with { type: "json" };
 
 dotenv.config();
@@ -16,9 +18,7 @@ app.use(express.json());
 let serviceAccount;
 
 if (process.env.FIREBASE_KEY) {
-  // 1. Convertimos el texto a objeto
   serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
-  // 2. Limpiamos los saltos de línea de la llave privada
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 } else {
   serviceAccount = serviceAccountLocal;
@@ -30,7 +30,6 @@ if (!admin.apps.length) {
   });
 }
 
-// Función auxiliar para no saturar a Google (retraso de 1 segundo)
 const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
 const enviarPush = async (titulo, mensaje) => {
@@ -47,7 +46,6 @@ const enviarPush = async (titulo, mensaje) => {
   };
 
   try {
-    // Esperamos 1.5 segundos antes de enviar para evitar el error de JWT Signature por saturación
     await delay(1500); 
     await admin.messaging().send(message);
     console.log(`✅ Push enviado: ${titulo}`);
@@ -89,12 +87,87 @@ const mttoSchema = new mongoose.Schema({
 });
 
 const Maquina = mongoose.model("Maquina", new mongoose.Schema({
-    _id: String, // <--- AGREGA ESTA LÍNEA AQUÍ
+    _id: String,
     nombre: String, 
     laboratorio: String, 
     mantenimientos: [mttoSchema], 
     historial: [mttoSchema]
 }));
+
+// --- LÓGICA DE REPORTE POR CORREO ---
+const enviarReporteExcel = async () => {
+  console.log("📊 [CORREO] Generando reporte bimestral...");
+  try {
+    const maquinas = await Maquina.find();
+    if (!maquinas || maquinas.length === 0) return;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Historial de Mantenimiento');
+
+    worksheet.columns = [
+      { header: 'MAQUINA/EQUIPO', key: 'equipo', width: 25 },
+      { header: 'LABORATORIO', key: 'lab', width: 15 },
+      { header: 'TIPO MANTENIMIENTO', key: 'tipo', width: 20 },
+      { header: 'FECHA REGISTRO', key: 'fecha', width: 25 },
+      { header: 'ESTADO FINAL', key: 'estado', width: 15 }
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+
+    let hayDatos = false;
+    maquinas.forEach(m => {
+      if (m.historial && m.historial.length > 0) {
+        m.historial.forEach(h => {
+          worksheet.addRow({
+            equipo: m.nombre || 'N/A',
+            lab: m.laboratorio || 'N/A',
+            tipo: h.tipo || 'N/A',
+            fecha: h.fecha_registro ? new Date(h.fecha_registro).toLocaleString('es-CO') : 'N/A',
+            estado: h.estado || 'Realizado'
+          });
+          hayDatos = true;
+        });
+      }
+    });
+
+    if (!hayDatos) {
+      console.log("ℹ️ Historial vacío, no se envía reporte.");
+      return;
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    const mailOptions = {
+      from: `"Speed Turbo Reports" <${process.env.EMAIL_USER}>`,
+      to: 'ing.calidad@spturbos.com, juang@spturbos.com, jgomez@spturbos.com, jarango@spturbos.com', 
+      bcc: 'dbecerravele@gmail.com',
+      subject: `📊 Reporte Bimestral Historial - ${new Date().toLocaleDateString('es-CO')}`,
+      text: 'Adjunto se encuentra el historial de mantenimientos registrados en la App en el bimestre anterior.',
+      attachments: [{
+        filename: `Reporte_SpeedTurbo_${new Date().getMonth() + 1}.xlsx`,
+        content: buffer
+      }]
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log("✅ [CORREO] Enviado con éxito a las 9:00 AM.");
+
+  } catch (error) {
+    console.error("❌ [CORREO] Error:", error.message);
+  }
+};
+
+// Cron Job Bimestral a las 9:00 AM (Día 1 de cada 2 meses)
+cron.schedule("0 9 1 1,3,5,7,9,11 *", () => {
+  enviarReporteExcel();
+});
 
 // --- RUTAS API ---
 app.post("/suscribir", async (req, res) => {
@@ -141,12 +214,9 @@ app.get("/maquinas", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- RUTA MODIFICADA PARA FUNCIONAMIENTO DEL BOTÓN ---
 app.post("/maquinas/:id/mantenimiento", async (req, res) => {
     try {
         const idRecibido = req.params.id.trim();
-        
-        // Ahora buscará el String "696fa57f639992a0ecb76880" sin errores
         const maquina = await Maquina.findOne({ _id: idRecibido });
 
         if (!maquina) {
@@ -180,7 +250,6 @@ app.post("/maquinas/:id/mantenimiento", async (req, res) => {
     }
 });
 
-// --- AUTO-PING (MANTIENE RENDER DESPIERTO) ---
 setInterval(() => {
   fetch("https://backend-speed-turbo.onrender.com/maquinas").catch(() => {});
 }, 600000); 
@@ -192,6 +261,9 @@ mongoose.connect(MONGO_URI)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Servidor activo (8:30-17:00). Puerto: ${PORT}`);
+      
+      // --- LÍNEA DE PRUEBA INMEDIATA ---
+      enviarReporteExcel(); // ELIMINAR después de verificar que llegó el correo
     });
   })
   .catch(err => console.error("❌ Error DB:", err));
