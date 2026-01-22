@@ -138,18 +138,20 @@ const enviarReporteExcel = async () => {
     const buffer = await workbook.xlsx.writeBuffer();
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
-      port: 465,
-      secure: true, // true para puerto 465
+      port: 587,
+      secure: false, // false para puerto 587
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
       },
       tls: {
-        rejectUnauthorized: false // Ayuda a evitar bloqueos de firewall en Render
+        // Esto evita que la conexión se caiga si el certificado de Render
+        // no coincide perfectamente con el de Google
+        rejectUnauthorized: false,
+        minVersion: "TLSv1.2"
       },
-      connectionTimeout: 20000, // Aumentamos a 20 segundos
-      greetingTimeout: 20000,
-      socketTimeout: 20000
+      connectionTimeout: 30000, // Aumentamos a 30 segundos
+      greetingTimeout: 30000,
     });
 
     const mailOptions = {
