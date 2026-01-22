@@ -175,11 +175,14 @@ app.post("/suscribir", async (req, res) => {
 });
 
 // --- CRON JOB: REVISIÓN DE MANTENIMIENTOS ---
+// Mantenemos el chequeo cada minuto para no perder la ventana de las 8:30 AM
 cron.schedule("*/1 * * * *", async () => {
   try {
     const ahora = new Date();
     const hora = ahora.getHours();
     const minutos = ahora.getMinutes();
+
+    // Esto respeta tu ventana de trabajo exacta
     const esHorarioLaboral = (hora > 8 || (hora === 8 && minutos >= 30)) && hora < 17;
 
     if (esHorarioLaboral) {
@@ -187,9 +190,14 @@ cron.schedule("*/1 * * * *", async () => {
       maquinas.forEach(m => {
         m.mantenimientos.forEach(mt => {
           const estado = calcularEstado(mt.fecha_limite);
-          if (estado === "Plazo Incumplido") {
+
+          // 1. INCUMPLIDO: Se envía cada hora (cuando el reloj marca :00 minutos)
+          if (estado === "Plazo Incumplido" && minutos === 0) {
             enviarPush("🚨 PLAZO INCUMPLIDO", `${m.nombre}: ${mt.tipo} vencido.`);
-          } else if (estado === "Próximo" && hora === 9 && minutos === 0) {
+          } 
+          
+          // 2. PRÓXIMO: Solo una vez al día (a las 9:00 AM exactas)
+          else if (estado === "Próximo" && hora === 9 && minutos === 0) {
             enviarPush("⚠️ PRÓXIMO VENCIMIENTO", `${m.nombre}: ${mt.tipo} vence pronto.`);
           }
         });
@@ -251,7 +259,7 @@ mongoose.connect(MONGO_URI)
       console.log(`🚀 Servidor activo. Puerto: ${PORT}`);
       
       // PRUEBA INMEDIATA
-      enviarReporteExcel(); // ELIMINAR después de verificar
+      //enviarReporteExcel(); // ELIMINAR después de verificar
     });
   })
   .catch(err => console.error("❌ Error DB:", err));
