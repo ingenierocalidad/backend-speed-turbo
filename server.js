@@ -5,18 +5,20 @@ import dotenv from "dotenv";
 import cron from "node-cron";
 import admin from "firebase-admin";
 import ExcelJS from 'exceljs';
-import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail'; // Cambio a SendGrid
 import serviceAccountLocal from "./firebase-key.json" with { type: "json" };
 
 dotenv.config();
+
+// Configuración de SendGrid
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// --- CONFIGURACIÓN FIREBASE (ACTUALIZADA) ---
+// --- CONFIGURACIÓN FIREBASE ---
 let serviceAccount;
-
 if (process.env.FIREBASE_KEY) {
   serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
@@ -44,7 +46,6 @@ const enviarPush = async (titulo, mensaje) => {
       } 
     }
   };
-
   try {
     await delay(1500); 
     await admin.messaging().send(message);
@@ -94,9 +95,9 @@ const Maquina = mongoose.model("Maquina", new mongoose.Schema({
     historial: [mttoSchema]
 }));
 
-// --- LÓGICA DE REPORTE POR CORREO ---
+// --- LÓGICA DE REPORTE CON SENDGRID ---
 const enviarReporteExcel = async () => {
-  console.log("📊 [CORREO] Generando reporte bimestral...");
+  console.log("📊 [SENDGRID] Generando reporte...");
   try {
     const maquinas = await Maquina.find();
     if (!maquinas || maquinas.length === 0) return;
@@ -111,8 +112,6 @@ const enviarReporteExcel = async () => {
       { header: 'FECHA REGISTRO', key: 'fecha', width: 25 },
       { header: 'ESTADO FINAL', key: 'estado', width: 15 }
     ];
-
-    worksheet.getRow(1).font = { bold: true };
 
     let hayDatos = false;
     maquinas.forEach(m => {
@@ -136,41 +135,31 @@ const enviarReporteExcel = async () => {
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const transporter = nodemailer.createTransport({
-      host: "smtp-relay.gmail.com", // Servidor de relevo (puente)
-      port: 587,
-      secure: false, 
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      },
-      connectionTimeout: 10000
-    });
+    const base64Content = buffer.toString('base64');
 
-    const mailOptions = {
-      from: `"Speed Turbo Reports" <${process.env.EMAIL_USER}>`,
-      to: 'ing.calidad@spturbos.com, juang@spturbos.com, jgomez@spturbos.com, jarango@spturbos.com', 
+    const msg = {
+      to: ['ing.calidad@spturbos.com', 'juang@spturbos.com', 'jgomez@spturbos.com', 'jarango@spturbos.com'],
+      from: 'tu-correo-verificado-en-sendgrid@gmail.com', // CAMBIAR POR TU CORREO AUTORIZADO
       bcc: 'dbecerravele@gmail.com',
       subject: `📊 Reporte Bimestral Historial - ${new Date().toLocaleDateString('es-CO')}`,
       text: 'Adjunto se encuentra el historial de mantenimientos registrados en la App en el bimestre anterior.',
       attachments: [{
+        content: base64Content,
         filename: `Reporte_SpeedTurbo_${new Date().getMonth() + 1}.xlsx`,
-        content: buffer
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        disposition: 'attachment'
       }]
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log("✅ [CORREO] Enviado con éxito a las 9:00 AM.");
+    await sgMail.sendMultiple(msg);
+    console.log("✅ [SENDGRID] Reporte enviado con éxito.");
 
   } catch (error) {
-    console.error("❌ [CORREO] Error:", error.message);
+    console.error("❌ [SENDGRID] Error:", error.response ? error.response.body : error.message);
   }
 };
 
-// Cron Job Bimestral a las 9:00 AM (Día 1 de cada 2 meses)
+// Cron Job Bimestral
 cron.schedule("0 9 1 1,3,5,7,9,11 *", () => {
   enviarReporteExcel();
 });
@@ -191,7 +180,6 @@ cron.schedule("*/1 * * * *", async () => {
     const ahora = new Date();
     const hora = ahora.getHours();
     const minutos = ahora.getMinutes();
-
     const esHorarioLaboral = (hora > 8 || (hora === 8 && minutos >= 30)) && hora < 17;
 
     if (esHorarioLaboral) {
@@ -224,11 +212,7 @@ app.post("/maquinas/:id/mantenimiento", async (req, res) => {
     try {
         const idRecibido = req.params.id.trim();
         const maquina = await Maquina.findOne({ _id: idRecibido });
-
-        if (!maquina) {
-            console.log(`❌ No encontrada en Atlas. ID solicitado: [${idRecibido}]`);
-            return res.status(404).json({ error: "Máquina no encontrada en Atlas" });
-        }
+        if (!maquina) return res.status(404).json({ error: "Máquina no encontrada" });
 
         const mtto = maquina.mantenimientos.find(m => m.tipo === req.body.tipo);
         if (!mtto) return res.status(400).json({ error: "Tipo de mantenimiento no válido" });
@@ -249,9 +233,7 @@ app.post("/maquinas/:id/mantenimiento", async (req, res) => {
 
         enviarPush("✅ Registro Exitoso", `${maquina.nombre}: ${mtto.tipo} completado.`);
         res.json({ success: true });
-
     } catch (err) { 
-        console.error("❌ Error en registro:", err.message);
         res.status(500).json({ error: err.message }); 
     }
 });
@@ -266,10 +248,10 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://speedserver:Speed2026@
 mongoose.connect(MONGO_URI)
   .then(() => {
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Servidor activo (8:30-17:00). Puerto: ${PORT}`);
+      console.log(`🚀 Servidor activo. Puerto: ${PORT}`);
       
-      // --- LÍNEA DE PRUEBA INMEDIATA ---
-      enviarReporteExcel(); // ELIMINAR después de verificar que llegó el correo
+      // PRUEBA INMEDIATA
+      enviarReporteExcel(); // ELIMINAR después de verificar
     });
   })
   .catch(err => console.error("❌ Error DB:", err));
